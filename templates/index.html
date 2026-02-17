@@ -1,41 +1,89 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>Live Captions</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #222;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        #captions {
+            font-size: 1.5em;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+            min-width: 300px;
+            text-align: center;
+        }
+        #startBtn {
+            font-size: 1.2em;
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            background-color: #28a745;
+            color: white;
+        }
+        #startBtn:hover {
+            background-color: #218838;
+        }
+    </style>
 </head>
 <body>
-<h2>Live Captions</h2>
-<div id="captions"></div>
+    <h1>Live Captions</h1>
+    <button id="startBtn">Start Captions</button>
+    <div id="captions">Your speech will appear here...</div>
 
-<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-<script>
-const socket = io();
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        const socket = io(); // Connect to the server
+        const captionsDiv = document.getElementById('captions');
+        const startBtn = document.getElementById('startBtn');
 
-// Capture microphone audio
-navigator.mediaDevices.getUserMedia({ audio: true })
-.then(stream => {
-    const audioContext = new AudioContext();
-    const source = audioContext.createMediaStreamSource(stream);
-    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+        startBtn.addEventListener('click', async () => {
+            try {
+                // Ask for microphone access
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const audioContext = new AudioContext();
+                const source = audioContext.createMediaStreamSource(stream);
+                const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
-    source.connect(processor);
-    processor.connect(audioContext.destination);
+                source.connect(processor);
+                processor.connect(audioContext.destination);
 
-    processor.onaudioprocess = (e) => {
-        const input = e.inputBuffer.getChannelData(0);
-        let buffer = new ArrayBuffer(input.length * 2);
-        let view = new DataView(buffer);
-        for (let i = 0; i < input.length; i++) {
-            let s = Math.max(-1, Math.min(1, input[i]));
-            view.setInt16(i*2, s < 0 ? s*0x8000 : s*0x7FFF, true);
-        }
-        socket.emit('audio_chunk', buffer);
-    };
-});
+                processor.onaudioprocess = (e) => {
+                    const input = e.inputBuffer.getChannelData(0);
+                    const buffer = new ArrayBuffer(input.length * 2);
+                    const view = new DataView(buffer);
+                    for (let i = 0; i < input.length; i++) {
+                        const s = Math.max(-1, Math.min(1, input[i]));
+                        view.setInt16(i*2, s < 0 ? s*0x8000 : s*0x7FFF, true);
+                    }
+                    socket.emit('audio_chunk', buffer);
+                };
 
-socket.on('transcript', text => {
-    document.getElementById('captions').innerText = text;
-});
-</script>
+                captionsDiv.innerText = "Captions started! Speak now...";
+                startBtn.disabled = true; // Disable button after starting
+            } catch (err) {
+                captionsDiv.innerText = "Microphone access denied or not available.";
+                console.error(err);
+            }
+        });
+
+        // Receive transcription from server
+        socket.on('transcript', text => {
+            if (text) captionsDiv.innerText = text;
+        });
+    </script>
 </body>
 </html>
