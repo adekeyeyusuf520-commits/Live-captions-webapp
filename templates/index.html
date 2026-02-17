@@ -1,89 +1,71 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Live Captions</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #222;
-            color: #fff;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-        }
-        #captions {
-            font-size: 1.5em;
-            background: rgba(0, 0, 0, 0.7);
-            color: #fff;
-            padding: 10px 20px;
-            border-radius: 8px;
-            margin-top: 20px;
-            min-width: 300px;
-            text-align: center;
-        }
-        #startBtn {
-            font-size: 1.2em;
-            padding: 10px 20px;
-            border-radius: 8px;
-            border: none;
-            cursor: pointer;
-            background-color: #28a745;
-            color: white;
-        }
-        #startBtn:hover {
-            background-color: #218838;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <title>Live Browser STT Captions</title>
+  <style>
+    body {
+      background: #000;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 50px;
+    }
+    #captions {
+      margin-top: 20px;
+      font-size: 1.6em;
+      background: rgba(0, 0, 0, 0.8);
+      padding: 12px;
+      border-radius: 8px;
+      min-height: 60px;
+    }
+  </style>
 </head>
 <body>
-    <h1>Live Captions</h1>
-    <button id="startBtn">Start Captions</button>
-    <div id="captions">Your speech will appear here...</div>
+  <h1>Live Captions (Browser WASM)</h1>
+  <button id="startBtn">Start Captions</button>
+  <div id="captions">Waiting to start...</div>
 
-    <!-- Socket.IO -->
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-    <script>
-        const socket = io(); // Connect to the server
-        const captionsDiv = document.getElementById('captions');
-        const startBtn = document.getElementById('startBtn');
+  <script type="module">
+    import { VoskRecognizer } from "./vosk‑wasm/vosk.js";  
+    // Adjust the path based on where the WASM model files are
 
-        startBtn.addEventListener('click', async () => {
-            try {
-                // Ask for microphone access
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const audioContext = new AudioContext();
-                const source = audioContext.createMediaStreamSource(stream);
-                const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    const startBtn = document.getElementById("startBtn");
+    const captionsDiv = document.getElementById("captions");
 
-                source.connect(processor);
-                processor.connect(audioContext.destination);
+    let recognizer;
 
-                processor.onaudioprocess = (e) => {
-                    const input = e.inputBuffer.getChannelData(0);
-                    const buffer = new ArrayBuffer(input.length * 2);
-                    const view = new DataView(buffer);
-                    for (let i = 0; i < input.length; i++) {
-                        const s = Math.max(-1, Math.min(1, input[i]));
-                        view.setInt16(i*2, s < 0 ? s*0x8000 : s*0x7FFF, true);
-                    }
-                    socket.emit('audio_chunk', buffer);
-                };
+    startBtn.addEventListener("click", async () => {
+      startBtn.disabled = true;
+      captionsDiv.innerText = "Initializing...";
 
-                captionsDiv.innerText = "Captions started! Speak now...";
-                startBtn.disabled = true; // Disable button after starting
-            } catch (err) {
-                captionsDiv.innerText = "Microphone access denied or not available.";
-                console.error(err);
-            }
-        });
+      // Load WASM model
+      recognizer = await VoskRecognizer.create({
+        modelPath: "./wasm_model", // Path to your wasm model folder
+        sampleRate: 16000
+      });
 
-        // Receive transcription from server
-        socket.on('transcript', text => {
-            if (text) captionsDiv.innerText = text;
-        });
-    </script>
+      captionsDiv.innerText = "Model loaded — allow mic";
+
+      // Ask for microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+
+      captionsDiv.innerText = "Captions started — speak now!";
+
+      processor.onaudioprocess = (e) => {
+        const input = e.inputBuffer.getChannelData(0);
+        // Send audio samples to recognizer (16 kHz utility)
+        recognizer.acceptAudio(input);
+        const text = recognizer.getFinalResult() || recognizer.getPartialResult();
+        if (text) captionsDiv.innerText = text;
+      };
+    });
+  </script>
 </body>
 </html>
